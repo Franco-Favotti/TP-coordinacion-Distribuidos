@@ -20,33 +20,40 @@ class AggregationFilter:
         self.input_exchange = middleware.MessageMiddlewareExchangeRabbitMQ(
             MOM_HOST, AGGREGATION_PREFIX, [f"{AGGREGATION_PREFIX}_{ID}"]
         )
-        self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
-            MOM_HOST, OUTPUT_QUEUE
-        )
-        self.fruit_top = []
+
+        self.fruit_top = {}
+        self.eof_counter = {}
+        self.completed_clients = set()
 
     def _process_data(self, client_id, fruit, amount):
         logging.info("Processing data message")
-        for i in range(len(self.fruit_top)):
-            if self.fruit_top[i].fruit == fruit:
-                self.fruit_top[i] = self.fruit_top[i] + fruit_item.FruitItem(
-                    fruit, amount
-                )
+        fruit_top = self.fruit_top.setdefault(client_id, [])
+        for i in range(len(fruit_top)):
+            if fruit_top[i].fruit == fruit:
+                updated_item = fruit_top[i] + fruit_item.FruitItem(fruit, amount)
+                del fruit_top[i]                      
+                bisect.insort(fruit_top, updated_item) 
+
                 return
-        bisect.insort(self.fruit_top, fruit_item.FruitItem(fruit, amount))
+        bisect.insort(fruit_top, fruit_item.FruitItem(fruit, amount))
 
     def _process_eof(self, client_id):
+        if client_id in self.completed_clients:
+            return
+        
         logging.info("Received EOF")
-        fruit_chunk = list(self.fruit_top[-TOP_SIZE:])
+        self.eof_counter[client_id] = self.eof_counter.get(client_id, 0) + 1
+        if self.eof_counter[client_id] < SUM_AMOUNT:
+            return
+        
+        fruit_top = self.fruit_top.pop(client_id, [])
+        del self.eof_counter[client_id]
+        self.completed_clients.add(client_id)
+
+        fruit_chunk = list(fruit_top[-TOP_SIZE:])
         fruit_chunk.reverse()
-        fruit_top = list(
-            map(
-                lambda fruit_item: (fruit_item.fruit, fruit_item.amount),
-                fruit_chunk,
-            )
-        )
-        self.output_queue.send(message_protocol.internal.serialize([client_id, fruit_top]))
-        self.fruit_top = []
+        result = [(fi.fruit, fi.amount) for fi in fruit_chunk]
+        self.input_exchange.publish_to_queue(OUTPUT_QUEUE, message_protocol.internal.serialize([client_id, result]))
 
     def process_messsage(self, message, ack, nack):
         logging.info("Process message")

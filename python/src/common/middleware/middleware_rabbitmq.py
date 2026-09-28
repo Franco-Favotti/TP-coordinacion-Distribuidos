@@ -105,6 +105,23 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
         except Exception as e:
             raise MessageMiddlewareCloseError(str(e)) from e
 
+    def bind_and_consume_exchange(self, exchange_name, routing_keys, on_message_callback):
+        self.channel.exchange_declare(exchange=exchange_name, exchange_type="direct", durable=False)
+        result = self.channel.queue_declare(queue="", exclusive=True, auto_delete=True)
+        bound_queue_name = result.method.queue
+        for routing_key in routing_keys:
+            self.channel.queue_bind(exchange=exchange_name, queue=bound_queue_name, routing_key=routing_key)
+
+        def wrapper(channel, method, properties, body):
+            ack = lambda: channel.basic_ack(delivery_tag=method.delivery_tag)
+            nack = lambda: channel.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+            on_message_callback(body, ack, nack)
+
+        self.channel.basic_consume(queue=bound_queue_name, on_message_callback=wrapper, auto_ack=False)
+
+    def publish_to_exchange(self, exchange_name, routing_key, message):
+        self.channel.exchange_declare(exchange=exchange_name, exchange_type="direct", durable=False)
+        self.channel.basic_publish(exchange=exchange_name, routing_key=routing_key, body=message)
 
 
 class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
@@ -206,3 +223,7 @@ class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
                 self.connection.close()
         except Exception as e:
             raise MessageMiddlewareCloseError(str(e)) from e
+        
+    def publish_to_queue(self, queue_name, message):
+        self.channel.queue_declare(queue=queue_name, durable=True)
+        self.channel.basic_publish(exchange="", routing_key=queue_name, body=message)
