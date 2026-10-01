@@ -74,9 +74,23 @@ class SumFilter:
         self._process_eof(client_id)
         ack()
 
+    def close_all(self):
+        try:
+            self.input_queue.close()
+        except Exception as e:
+            logging.error(f"Error cerrando input_queue: {e}")
+
+        for data_output_exchange in self.data_output_exchanges:
+            try:
+                data_output_exchange.close()
+            except Exception as e:
+                logging.error(f"Error cerrando data_output_exchange: {e}")
+
+
     def start(self):
         def handle_sigterm(signum, frame):
             self.input_queue.stop_consuming()
+            self.close_all()
 
         signal.signal(signal.SIGTERM, handle_sigterm)
         self.input_queue.start_consuming(self.process_data_messsage)

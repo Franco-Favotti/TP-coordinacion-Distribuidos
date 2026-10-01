@@ -1,6 +1,7 @@
 import os
 import logging
 import bisect
+import signal
 
 from common import middleware, message_protocol, fruit_item
 
@@ -64,7 +65,17 @@ class JoinFilter:
         ack()
 
     def start(self):
+        def handle_sigterm(signum, frame):
+            logging.info("SIGTERM recibido, iniciando apagado")
+            self.input_queue.stop_consuming()
+            try:
+                self.input_queue.close()
+            except Exception as e:
+                logging.error(f"Error cerrando input_queue: {e}")
+
+        signal.signal(signal.SIGTERM, handle_sigterm)
         self.input_queue.start_consuming(self.process_messsage)
+
 
 
 def main():
