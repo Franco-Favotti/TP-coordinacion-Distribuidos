@@ -20,9 +20,6 @@ class JoinFilter:
         self.input_queue = middleware.MessageMiddlewareQueueRabbitMQ(
             MOM_HOST, INPUT_QUEUE
         )
-        self.output_queue = middleware.MessageMiddlewareQueueRabbitMQ(
-            MOM_HOST, OUTPUT_QUEUE
-        )
 
         self.partials = {}
         self.arrival_count = {}
@@ -63,7 +60,7 @@ class JoinFilter:
         final_chunk = list(merged[-TOP_SIZE:])
         final_chunk.reverse()
         result = [(fi.fruit, fi.amount) for fi in final_chunk]
-        self.output_queue.send(message_protocol.internal.serialize([client_id, result]))
+        self.input_queue.publish_to_queue(OUTPUT_QUEUE, message_protocol.internal.serialize([client_id, result]))
         ack()
 
     def start(self):

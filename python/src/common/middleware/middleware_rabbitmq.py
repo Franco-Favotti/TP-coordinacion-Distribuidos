@@ -105,11 +105,17 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
         except Exception as e:
             raise MessageMiddlewareCloseError(str(e)) from e
 
-    def bind_and_consume_exchange(self, exchange_name, routing_keys, on_message_callback):
-        self.channel.exchange_declare(exchange=exchange_name, exchange_type="direct", durable=False)
+    def bind_and_consume_exchange(self, exchange_name, routing_keys, on_message_callback, exchange_type="direct"):
+        self.channel.exchange_declare(exchange=exchange_name, exchange_type=exchange_type, durable=False)
         result = self.channel.queue_declare(queue="", exclusive=True, auto_delete=True)
         bound_queue_name = result.method.queue
-        for routing_key in routing_keys:
+
+        if exchange_type != "fanout":
+            keys_to_bind = routing_keys  
+        else:
+            keys_to_bind = [""]
+
+        for routing_key in keys_to_bind:
             self.channel.queue_bind(exchange=exchange_name, queue=bound_queue_name, routing_key=routing_key)
 
         def wrapper(channel, method, properties, body):
@@ -119,11 +125,14 @@ class MessageMiddlewareQueueRabbitMQ(MessageMiddlewareQueue):
 
         self.channel.basic_consume(queue=bound_queue_name, on_message_callback=wrapper, auto_ack=False)
 
-    def publish_to_exchange(self, exchange_name, routing_key, message):
-        self.channel.exchange_declare(exchange=exchange_name, exchange_type="direct", durable=False)
+    def publish_to_exchange(self, exchange_name, routing_key, message, exchange_type="direct"):
+        self.channel.exchange_declare(exchange=exchange_name, exchange_type=exchange_type, durable=False)
         self.channel.basic_publish(exchange=exchange_name, routing_key=routing_key, body=message)
 
-
+    def publish_to_queue(self, queue_name, message):
+        
+        self.channel.queue_declare(queue=queue_name, durable=True)
+        self.channel.basic_publish(exchange="", routing_key=queue_name, body=message)
 class MessageMiddlewareExchangeRabbitMQ(MessageMiddlewareExchange):
             
     def __init__(self, host, exchange_name, routing_keys):

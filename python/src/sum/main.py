@@ -27,13 +27,12 @@ class SumFilter:
             )
             self.data_output_exchanges.append(data_output_exchange)
 
-        self.sum_keys = [f"{SUM_PREFIX}_{i}" for i in range(SUM_AMOUNT)]
-
         self.input_queue.bind_and_consume_exchange(
-            SUM_CONTROL_EXCHANGE, self.sum_keys, self.process_control_message
+            SUM_CONTROL_EXCHANGE, [""], self.process_control_message, exchange_type="fanout"
         )
 
         self.amount_by_fruit = {}
+        self.completed_clients = set() 
 
     def _process_data(self, client_id, fruit, amount):
         client_totals = self.amount_by_fruit.setdefault(client_id, {})
@@ -42,6 +41,10 @@ class SumFilter:
         ) + fruit_item.FruitItem(fruit, int(amount))
 
     def _process_eof(self, client_id):
+        if client_id in self.completed_clients:
+            return
+        self.completed_clients.add(client_id)
+
         client_totals = self.amount_by_fruit.pop(client_id, {})
         for final_fruit_item in client_totals.values():
             target = zlib.crc32(final_fruit_item.fruit.encode("utf-8")) % AGGREGATION_AMOUNT 
@@ -62,7 +65,7 @@ class SumFilter:
             [client_id] = fields
         
             self.input_queue.publish_to_exchange(
-            SUM_CONTROL_EXCHANGE, self.sum_keys[0], message_protocol.internal.serialize([client_id])
+            SUM_CONTROL_EXCHANGE, "", message_protocol.internal.serialize([client_id]), exchange_type="fanout"
         )
         ack()
 
